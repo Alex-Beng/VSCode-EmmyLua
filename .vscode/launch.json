@@ -18,7 +18,10 @@
                 "${workspaceFolder}/out/**/*.js"
             ],
             "env": {
-                "EMMY_DEV": "true"
+                // 这里会影响LSP的启动
+                "EMMY_DEV": "true",
+                // MCP Server 开关 (list_supported_languages 示例接口)
+                "EMMY_MCP": "true"
             },
             "preLaunchTask": "npm: watch"
         },

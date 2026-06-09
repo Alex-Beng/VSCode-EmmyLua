@@ -141,6 +141,14 @@ async function initializeExtension(): Promise<void> {
     await startServer();
     registerDebuggers();
     await LuaRocks.initializeLuaRocks();
+
+    // Start MCP server
+    try {
+        const { startMcpServer } = await import('./mcp/server');
+        await startMcpServer();
+    } catch (e: any) {
+        console.error('[EMMY_MCP] Failed to start:', e.message);
+    }
 }
 
 function onConfigurationChanged(e: vscode.ConfigurationChangeEvent): void {
