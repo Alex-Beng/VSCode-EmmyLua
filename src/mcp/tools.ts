@@ -11,7 +11,7 @@ interface ToolDef {
 
 function activeSession(): vscode.DebugSession {
     const s = vscode.debug.activeDebugSession;
-    if (!s) throw new Error('No active debug session');
+    if (!s) throw new Error('No active debug session — user must start an emmylua_new debug session first (press F5 or call the launch tool)');
     return s;
 }
 
@@ -33,7 +33,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'get_active_sessions',
-        description: 'List all active debug sessions',
+        description: 'List all active debug sessions — if empty, no debug session is running',
         inputSchema: { type: 'object', properties: {}, required: [] },
         handler: async (_a, sm) => ({
             content: [{ type: 'text', text: JSON.stringify(sm.getActiveSessions().map(s => ({
@@ -44,7 +44,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'threads',
-        description: 'Get all threads in the active debug session',
+        description: '[Requires active debug session] Get all threads in the active debug session',
         inputSchema: { type: 'object', properties: {}, required: [] },
         handler: async () => {
             const r = await requestWithTimeout(activeSession(), 'threads');
@@ -53,7 +53,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'stack_trace',
-        description: 'Get stack trace for a thread',
+        description: '[Requires active debug session] Get stack trace for a thread',
         inputSchema: {
             type: 'object',
             properties: {
@@ -70,7 +70,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'scopes',
-        description: 'Get scopes for a stack frame',
+        description: '[Requires active debug session] Get scopes for a stack frame',
         inputSchema: {
             type: 'object',
             properties: { frameId: { type: 'number', description: 'Stack frame ID' } },
@@ -83,7 +83,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'variables',
-        description: 'Get variables for a scope or variable reference',
+        description: '[Requires active debug session] Get variables for a scope or variable reference',
         inputSchema: {
             type: 'object',
             properties: {
@@ -101,7 +101,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'evaluate',
-        description: 'Evaluate an expression in a stack frame context',
+        description: '[Requires active debug session] Evaluate an expression in a stack frame context',
         inputSchema: {
             type: 'object',
             properties: {
@@ -117,7 +117,7 @@ const tools: ToolDef[] = [
     },
     {
         name: 'set_variable',
-        description: 'Set the value of a variable or expression',
+        description: '[Requires active debug session] Set the value of a variable or expression',
         inputSchema: {
             type: 'object',
             properties: {

@@ -1,0 +1,273 @@
+{
+  "server": {
+    "name": "emmylua-mcp",
+    "version": "0.1.0",
+    "description": "MCP server for EmmyLua debugger — inspect variables, set breakpoints, control execution",
+    "activation": {
+      "trigger": "onDebug",
+      "description": "MCP server 在 VSCode 启动 emmylua_new 类型调试会话时自动启动",
+      "lifecycle": "调试会话结束时自动关闭，新会话启动时自动重启"
+    }
+  },
+
+  "transport": {
+    "protocol": "streamable-http",
+    "defaultHost": "127.0.0.1",
+    "defaultPort": 8827,
+    "portRetryCount": 10,
+    "endpointPath": "/mcp",
+    "urlTemplate": "http://{host}:{port}/mcp"
+  },
+
+  "clientConfig": {
+    "_说明": "复制下方 mcpServers 内容到 MCP 客户端的 config.json 中（如 claude_desktop_config.json）",
+    "_端口说明": "端口从 8827 开始，遇冲突自动 +1（8827→8828→8829...），实际端口请查看 VSCode 控制台输出",
+    "mcpServers": {
+      "emmylua-mcp": {
+        "url": "http://127.0.0.1:8827/mcp"
+      }
+    }
+  },
+
+  "environmentVariables": [
+    {
+      "name": "EMMY_MCP_HOST",
+      "default": "127.0.0.1",
+      "description": "监听地址"
+    },
+    {
+      "name": "EMMY_MCP_PORT",
+      "default": "8827",
+      "description": "监听端口（遇冲突自动 +1）"
+    }
+  ],
+
+  "tools": [
+    {
+      "name": "list_supported_languages",
+      "description": "List the programming languages supported by this debugger",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "type": "object", "properties": { "languages": { "type": "array", "items": { "type": "string" }, "description": "e.g. ['lua']" } } }
+    },
+    {
+      "name": "get_active_sessions",
+      "description": "List all active debug sessions",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string" }, "startedAt": { "type": "string", "description": "ISO timestamp" } } } }
+    },
+    {
+      "name": "threads",
+      "description": "Get all threads in the active debug session",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "description": "DAP Threads response body", "type": "object", "properties": { "threads": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "number" }, "name": { "type": "string" } } } } } }
+    },
+    {
+      "name": "stack_trace",
+      "description": "Get stack trace for a thread",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threadId": { "type": "number", "description": "Thread ID" },
+          "startFrame": { "type": "number", "description": "Start frame index (optional)" },
+          "levels": { "type": "number", "description": "Number of levels (optional)" }
+        },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP StackTrace response body", "type": "object", "properties": { "stackFrames": { "type": "array" }, "totalFrames": { "type": "number" } } }
+    },
+    {
+      "name": "scopes",
+      "description": "Get scopes for a stack frame",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "frameId": { "type": "number", "description": "Stack frame ID" }
+        },
+        "required": ["frameId"]
+      },
+      "response": { "description": "DAP Scopes response body", "type": "object", "properties": { "scopes": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "variablesReference": { "type": "number" }, "expensive": { "type": "boolean" } } } } } }
+    },
+    {
+      "name": "variables",
+      "description": "Get variables for a scope or variable reference",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "variablesReference": { "type": "number", "description": "Variable reference ID" },
+          "filter": { "type": "string", "description": "Optional filter (indexed, named)" },
+          "start": { "type": "number", "description": "Start index (optional)" },
+          "count": { "type": "number", "description": "Count (optional)" }
+        },
+        "required": ["variablesReference"]
+      },
+      "response": { "description": "DAP Variables response body", "type": "object", "properties": { "variables": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "value": { "type": "string" }, "type": { "type": "string" }, "variablesReference": { "type": "number" } } } } } }
+    },
+    {
+      "name": "evaluate",
+      "description": "Evaluate an expression in a stack frame context",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": { "type": "string", "description": "Expression to evaluate" },
+          "frameId": { "type": "number", "description": "Stack frame ID" }
+        },
+        "required": ["expression", "frameId"]
+      },
+      "response": { "description": "DAP Evaluate response body", "type": "object", "properties": { "result": { "type": "string" }, "type": { "type": "string" }, "variablesReference": { "type": "number" } } }
+    },
+    {
+      "name": "set_variable",
+      "description": "Set the value of a variable or expression",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": { "type": "string", "description": "Variable name or expression" },
+          "value": { "type": "string", "description": "New value" },
+          "frameId": { "type": "number", "description": "Stack frame ID" }
+        },
+        "required": ["expression", "value", "frameId"]
+      },
+      "response": { "description": "DAP SetExpression response body", "type": "object", "properties": { "value": { "type": "string" }, "type": { "type": "string" } } }
+    },
+    {
+      "name": "list_breakpoints",
+      "description": "List all breakpoints in the workspace",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "enabled": { "type": "boolean" }, "source": { "type": "string", "description": "File path (may be absent for UI-set breakpoints)" }, "line": { "type": "number", "description": "1-based line number" }, "column": { "type": "number" } } } }
+    },
+    {
+      "name": "set_breakpoints",
+      "description": "Set breakpoints in a source file (updates VSCode UI and debug adapter)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "description": "File path" },
+              "name": { "type": "string", "description": "File name" }
+            },
+            "required": ["path"]
+          },
+          "breakpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": { "type": "number", "description": "Line number (1-based)" },
+                "column": { "type": "number", "description": "Column (optional)" },
+                "condition": { "type": "string", "description": "Condition (optional)" },
+                "hitCondition": { "type": "string", "description": "Hit condition (optional)" },
+                "logMessage": { "type": "string", "description": "Log message (optional)" }
+              },
+              "required": ["line"]
+            }
+          }
+        },
+        "required": ["source", "breakpoints"]
+      },
+      "response": { "type": "object", "properties": { "success": { "type": "boolean" } } }
+    },
+    {
+      "name": "remove_breakpoints",
+      "description": "Remove specific breakpoints by ID, or all breakpoints in a source file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "string" }, "description": "Breakpoint IDs to remove (from list_breakpoints)" },
+          "source": { "type": "string", "description": "Source file path — removes all breakpoints in this file" }
+        }
+      },
+      "response": { "type": "object", "properties": { "removed": { "type": "number", "description": "Number of breakpoints removed" } } }
+    },
+    {
+      "name": "clear_breakpoints",
+      "description": "Remove all breakpoints",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "type": "object", "properties": { "success": { "type": "boolean" } } }
+    },
+    {
+      "name": "continue",
+      "description": "Continue execution of a thread",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "threadId": { "type": "number", "description": "Thread ID" } },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP Continue response body", "type": "object", "properties": { "allThreadsContinued": { "type": "boolean" } } }
+    },
+    {
+      "name": "pause",
+      "description": "Pause a running thread",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "threadId": { "type": "number", "description": "Thread ID" } },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP Pause response body (empty on success)", "type": "object" }
+    },
+    {
+      "name": "step_over",
+      "description": "Step over (next line) in a thread",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "threadId": { "type": "number", "description": "Thread ID" } },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP Next response body (empty on success)", "type": "object" }
+    },
+    {
+      "name": "step_in",
+      "description": "Step into a function call",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "threadId": { "type": "number", "description": "Thread ID" } },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP StepIn response body (empty on success)", "type": "object" }
+    },
+    {
+      "name": "step_out",
+      "description": "Step out of the current function",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "threadId": { "type": "number", "description": "Thread ID" } },
+        "required": ["threadId"]
+      },
+      "response": { "description": "DAP StepOut response body (empty on success)", "type": "object" }
+    },
+    {
+      "name": "source",
+      "description": "Get source code by sourceReference",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceReference": { "type": "number", "description": "Source reference from stack frame" }
+        },
+        "required": ["sourceReference"]
+      },
+      "response": { "description": "DAP Source response body", "type": "object", "properties": { "content": { "type": "string", "description": "Source code" }, "mimeType": { "type": "string" } } }
+    },
+    {
+      "name": "disconnect",
+      "description": "Disconnect and terminate the debug session",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] },
+      "response": { "description": "DAP Disconnect response body (triggers MCP server shutdown)", "type": "object" }
+    },
+    {
+      "name": "launch",
+      "description": "Start a new debug session (emmylua_new)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "host": { "type": "string", "description": "Debugger host (default: localhost)" },
+          "port": { "type": "number", "description": "Debugger port (default: 9544)" },
+          "ext": { "type": "array", "items": { "type": "string" }, "description": "File extensions to support (default: ['.lua','.lua.txt','.lua.bytes'])" },
+          "ideConnectDebugger": { "type": "boolean", "description": "IDE connects to debugger (default: true)" }
+        },
+        "required": []
+      },
+      "response": { "type": "object", "properties": { "success": { "type": "boolean", "description": "false 表示启动失败，MCP server 会自动关闭" } } }
+    }
+  ]
+}
