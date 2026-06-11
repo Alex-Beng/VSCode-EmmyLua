@@ -2,6 +2,12 @@ import * as vscode from 'vscode';
 import { z } from 'zod';
 import type { SessionManager } from './sessionManager';
 
+let _stopMcp: (() => void) | undefined;
+
+export function setStopMcpCallback(fn: () => void): void {
+    _stopMcp = fn;
+}
+
 interface ToolDef {
     name: string;
     description: string;
@@ -337,8 +343,7 @@ const tools: ToolDef[] = [
             };
             const success = await vscode.debug.startDebugging(workspaceFolder, config);
             if (!success) {
-                const { stopMcpServer } = await import('./server');
-                stopMcpServer();
+                _stopMcp?.();
             }
             return { content: [{ type: 'text', text: JSON.stringify({ success }) }] };
         },

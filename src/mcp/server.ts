@@ -1,8 +1,8 @@
+import * as crypto from 'crypto';
 import * as http from 'http';
 import * as vscode from 'vscode';
-import { randomUUID } from 'crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { registerTools } from './tools';
+import { registerTools, setStopMcpCallback } from './tools';
 import { SessionManager } from './sessionManager';
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 
@@ -12,8 +12,12 @@ const DEFAULT_PORT = 8827;
 let mcpServer: any;
 let httpServer: any;
 let sessionManager: SessionManager | undefined;
-let transport: any;
-let sessionDisposables: vscode.Disposable[] = [];
+let transport: StreamableHTTPServerTransport | undefined;
+export const mcpOutput = vscode.window.createOutputChannel('EmmyLua MCP');
+
+function log(msg: string): void {
+    mcpOutput.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
+}
 
 function corsWrap(res: any): void {
     const orig = res.writeHead.bind(res);
@@ -28,55 +32,6 @@ function corsWrap(res: any): void {
     };
 }
 
-function makeTransport(): any {
-    return new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        enableJsonResponse: true,
-    });
-}
-
-function createHttpServer(): http.Server {
-    const s = http.createServer((req, res) => {
-        corsWrap(res);
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
-            return;
-        }
-        if (req.url !== '/mcp') {
-            res.writeHead(404);
-            res.end();
-            return;
-        }
-        const handle = async () => {
-            try {
-                if (req.method === 'POST') {
-                    const body = await new Promise<string>((resolve) => {
-                        const parts: Buffer[] = [];
-                        req.on('data', (c: Buffer) => parts.push(c));
-                        req.on('end', () => resolve(Buffer.concat(parts as any).toString()));
-                    });
-                    const parsedBody = JSON.parse(body);
-                    if (parsedBody.method === 'initialize' && transport?.sessionId) {
-                        await mcpServer.close();
-                        mcpServer._transport = null;
-                        transport = makeTransport();
-                        await mcpServer.connect(transport);
-                    }
-                    await transport.handleRequest(req, res, parsedBody);
-                } else {
-                    await transport.handleRequest(req, res);
-                }
-            } catch (e: any) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        };
-        handle();
-    });
-    return s;
-}
-
 function tryListen(host: string, startPort: number, maxRetries: number): Promise<{ server: http.Server; port: number }> {
     return new Promise((resolve, reject) => {
         const attempt = (i: number) => {
@@ -85,7 +40,27 @@ function tryListen(host: string, startPort: number, maxRetries: number): Promise
                 return;
             }
             const p = startPort + i;
-            const s = createHttpServer();
+            const s = http.createServer(async (req, res) => {
+                corsWrap(res);
+                if (req.method === 'OPTIONS') {
+                    res.writeHead(204);
+                    res.end();
+                    return;
+                }
+                const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+                if (url.pathname === '/mcp' && transport) {
+                    try {
+                        await transport.handleRequest(req, res);
+                    } catch (e: any) {
+                        if (!res.headersSent) {
+                            try { res.writeHead(400).end(e.message); } catch {}
+                        }
+                    }
+                } else {
+                    res.writeHead(404);
+                    res.end();
+                }
+            });
             s.once('error', (e: any) => {
                 s.close();
                 if (e.code === 'EADDRINUSE') {
@@ -112,39 +87,31 @@ export async function startMcpServer(): Promise<void> {
     );
 
     sessionManager = new SessionManager();
+    setStopMcpCallback(stopMcpServer);
     registerTools(mcpServerInstance, sessionManager);
 
-    transport = makeTransport();
+    transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+    });
     await mcpServerInstance.connect(transport);
-
     mcpServer = mcpServerInstance;
 
     try {
         const { server: httpSrv, port: actualPort } = await tryListen(host, port, 10);
         httpServer = httpSrv;
-        console.log(`EmmyLua MCP server started at http://${host}:${actualPort}/mcp`);
+        log(`MCP server started at http://${host}:${actualPort}/mcp`);
     } catch (e: any) {
-        console.error(`[EMMY_MCP] ${e.message}`);
+        log(`Failed to start: ${e.message}`);
     }
-
-    sessionDisposables.push(
-        vscode.debug.onDidTerminateDebugSession(() => {
-            stopMcpServer();
-        }),
-        vscode.debug.onDidStartDebugSession(() => {
-            if (!httpServer && !mcpServer) {
-                startMcpServer();
-            }
-        }),
-    );
 }
 
 export function stopMcpServer(): void {
-    sessionDisposables.forEach(d => d.dispose());
-    sessionDisposables = [];
     sessionManager?.dispose();
     if (mcpServer) {
-        mcpServer.close();
+        mcpServer.close().catch(() => {});
+    }
+    if (transport) {
+        transport.close().catch(() => {});
     }
     if (httpServer) {
         httpServer.close();

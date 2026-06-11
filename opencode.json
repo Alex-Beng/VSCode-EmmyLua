@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "emmylua-mcp": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8827/mcp",
+      "enabled": true,
+      "headers": {
+        "Accept": "application/json, text/event-stream"
+      }
+    }
+  }
+}

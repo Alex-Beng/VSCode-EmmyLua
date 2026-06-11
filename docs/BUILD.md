@@ -55,6 +55,20 @@ To watch for changes during development:
 yarn run watch
 ```
 
+### 2b. Bundle MCP Server
+
+```bash
+yarn run build:mcp
+```
+
+This bundles the MCP server (`src/mcp/server.ts`) and **all** its dependencies into a single file `out/mcp/server.js` using [esbuild](https://esbuild.github.io/).
+
+> **Why?** The VSCode extension host loads CommonJS modules at runtime. When `vsce package` processes the extension, nested `node_modules` from the SDK can be flattened or dropped, causing `MODULE_NOT_FOUND` errors for transitive dependencies. Bundling eliminates this issue — all dependencies are inlined at build time.
+
+The MCP server uses **SSE** transport (not Streamable HTTP) for broader client compatibility. It listens on `http://127.0.0.1:8827/sse` by default, with automatic port retry on conflict.
+
+This step runs automatically as part of `vscode:prepublish` (`yarn run compile && yarn run build:mcp`).
+
 ### 3. Download Binaries (prepare.js)
 
 ```bash

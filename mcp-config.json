@@ -4,9 +4,9 @@
     "version": "0.1.0",
     "description": "MCP server for EmmyLua debugger — inspect variables, set breakpoints, control execution",
     "activation": {
-      "trigger": "onDebug",
-      "description": "MCP server 在 VSCode 启动 emmylua_new 类型调试会话时自动启动",
-      "lifecycle": "调试会话结束时自动关闭，新会话启动时自动重启"
+      "trigger": "manual",
+      "description": "在 VSCode 中按 Ctrl+Shift+P → 'EmmyLua: Start MCP Server' 手动启动",
+      "lifecycle": "按 Ctrl+Shift+P → 'EmmyLua: Stop MCP Server' 手动关闭"
     }
   },
 
@@ -15,16 +15,17 @@
     "defaultHost": "127.0.0.1",
     "defaultPort": 8827,
     "portRetryCount": 10,
-    "endpointPath": "/mcp",
+    "endpoint": "/mcp",
     "urlTemplate": "http://{host}:{port}/mcp"
   },
 
   "clientConfig": {
-    "_说明": "复制下方 mcpServers 内容到 MCP 客户端的 config.json 中（如 claude_desktop_config.json）",
-    "_端口说明": "端口从 8827 开始，遇冲突自动 +1（8827→8828→8829...），实际端口请查看 VSCode 控制台输出",
+    "_说明": "复制下方 mcpServers 内容到 MCP 客户端的 config.json 中",
+    "_端口说明": "端口从 8827 开始，遇冲突自动 +1（8827→8828→8829...），实际端口请查看 Output 面板 → EmmyLua MCP",
     "mcpServers": {
       "emmylua-mcp": {
-        "url": "http://127.0.0.1:8827/mcp"
+        "url": "http://127.0.0.1:8827/mcp",
+        "type": "streamable-http"
       }
     }
   },
