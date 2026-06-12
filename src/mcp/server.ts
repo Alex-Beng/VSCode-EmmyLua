@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 import * as vscode from 'vscode';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { registerTools, setStopMcpCallback } from './tools';
 import { SessionManager } from './sessionManager';
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
@@ -13,6 +14,16 @@ let mcpServer: any;
 let httpServer: any;
 let sessionManager: SessionManager | undefined;
 let transport: StreamableHTTPServerTransport | undefined;
+const sseTransports = new Map<string, SSEServerTransport>();
+
+function createMcpServer(): any {
+    const server = new Server(
+        { name: 'emmylua-mcp', version: '0.1.0' },
+        { capabilities: { tools: {} } },
+    );
+    registerTools(server, sessionManager!);
+    return server;
+}
 export const mcpOutput = vscode.window.createOutputChannel('EmmyLua MCP');
 
 function log(msg: string): void {
@@ -56,6 +67,38 @@ function tryListen(host: string, startPort: number, maxRetries: number): Promise
                             try { res.writeHead(400).end(e.message); } catch {}
                         }
                     }
+                } else if (url.pathname === '/sse') {
+                    try {
+                        const sseTransport = new SSEServerTransport('/messages', res);
+                        sseTransports.set(sseTransport.sessionId, sseTransport);
+                        res.on('close', () => {
+                            sseTransports.delete(sseTransport.sessionId);
+                        });
+                        const sseServer = createMcpServer();
+                        await sseServer.connect(sseTransport);
+                    } catch (e: any) {
+                        if (!res.headersSent) {
+                            try { res.writeHead(500).end(e.message); } catch {}
+                        }
+                    }
+                } else if (url.pathname === '/messages' && req.method === 'POST') {
+                    const sessionId = url.searchParams.get('sessionId');
+                    if (!sessionId) {
+                        res.writeHead(400).end('Missing sessionId parameter');
+                        return;
+                    }
+                    const sseTransport = sseTransports.get(sessionId);
+                    if (!sseTransport) {
+                        res.writeHead(404).end('Session not found');
+                        return;
+                    }
+                    try {
+                        await sseTransport.handlePostMessage(req, res);
+                    } catch (e: any) {
+                        if (!res.headersSent) {
+                            try { res.writeHead(500).end(e.message); } catch {}
+                        }
+                    }
                 } else {
                     res.writeHead(404);
                     res.end();
@@ -81,15 +124,10 @@ export async function startMcpServer(): Promise<void> {
     const host = process.env['EMMY_MCP_HOST'] || DEFAULT_HOST;
     const port = parseInt(process.env['EMMY_MCP_PORT'] || String(DEFAULT_PORT), 10);
 
-    const mcpServerInstance = new Server(
-        { name: 'emmylua-mcp', version: '0.1.0' },
-        { capabilities: { tools: {} } },
-    );
-
     sessionManager = new SessionManager();
     setStopMcpCallback(stopMcpServer);
-    registerTools(mcpServerInstance, sessionManager);
 
+    const mcpServerInstance = createMcpServer();
     transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
     });
@@ -99,7 +137,7 @@ export async function startMcpServer(): Promise<void> {
     try {
         const { server: httpSrv, port: actualPort } = await tryListen(host, port, 10);
         httpServer = httpSrv;
-        log(`MCP server started at http://${host}:${actualPort}/mcp`);
+        log(`MCP server started at http://${host}:${actualPort}/mcp (Streamable HTTP) and /sse (SSE)`);
     } catch (e: any) {
         log(`Failed to start: ${e.message}`);
     }
@@ -107,6 +145,10 @@ export async function startMcpServer(): Promise<void> {
 
 export function stopMcpServer(): void {
     sessionManager?.dispose();
+    for (const [, st] of sseTransports) {
+        st.close().catch(() => {});
+    }
+    sseTransports.clear();
     if (mcpServer) {
         mcpServer.close().catch(() => {});
     }
