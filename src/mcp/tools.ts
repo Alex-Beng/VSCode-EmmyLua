@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as cp from 'child_process';
 import { z } from 'zod';
 import type { SessionManager } from './sessionManager';
 
@@ -299,6 +302,145 @@ const tools: ToolDef[] = [
         handler: async () => {
             const r = await requestWithTimeout(activeSession(), 'disconnect');
             return { content: [{ type: 'text', text: JSON.stringify(r ?? {}) }] };
+        },
+    },
+    {
+        name: 'list_launch_configs',
+        description: 'List all debug configurations from .vscode/launch.json',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+        handler: async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) throw new Error('No workspace folder open');
+            const launchPath = path.join(workspaceFolder.uri.fsPath, '.vscode', 'launch.json');
+            if (!fs.existsSync(launchPath)) {
+                return { content: [{ type: 'text', text: JSON.stringify({ configurations: [] }) }] };
+            }
+            const text = fs.readFileSync(launchPath, 'utf-8');
+            const launchConfig = JSON.parse(text);
+            const configs = (launchConfig.configurations || []).map((c: any) => ({
+                name: c.name,
+                type: c.type,
+                request: c.request,
+                processName: c.processName,
+                pid: c.pid,
+                ext: c.ext,
+                captureLog: c.captureLog,
+                host: c.host,
+                port: c.port,
+                ideConnectDebugger: c.ideConnectDebugger,
+            }));
+            return { content: [{ type: 'text', text: JSON.stringify({ configurations: configs }) }] };
+        },
+    },
+    {
+        name: 'list_processes',
+        description: 'List all running processes available for attach debugging (Windows only)',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+        handler: async () => {
+            if (process.platform !== 'win32') throw new Error('list_processes is only supported on Windows');
+            const ext = vscode.extensions.getExtension('tangzx.emmylua');
+            if (!ext) throw new Error('Extension tangzx.emmylua not found');
+            const toolPath = path.join(ext.extensionPath, 'debugger', 'emmy', 'windows', 'x86', 'emmy_tool.exe');
+            if (!fs.existsSync(toolPath)) throw new Error('emmy_tool.exe not found at ' + toolPath);
+            const stdout = await new Promise<Buffer>((resolve, reject) => {
+                cp.exec(`"${toolPath}" list_processes`, { encoding: 'buffer' }, (err, sout) => {
+                    if (err) { reject(err); return; }
+                    resolve(sout as Buffer);
+                });
+            });
+            const iconv = require('iconv-lite');
+            const str = iconv.decode(stdout, 'cp936');
+            const arr = str.split('\r\n');
+            const size = Math.floor(arr.length / 4);
+            const items: { pid: number; name: string; path: string; title: string }[] = [];
+            for (let i = 0; i < size; i++) {
+                const pid = parseInt(arr[i * 4]);
+                const title = arr[i * 4 + 1];
+                const fpath = arr[i * 4 + 2];
+                items.push({ pid, name: path.basename(fpath), path: fpath, title });
+            }
+            return { content: [{ type: 'text', text: JSON.stringify({ processes: items }) }] };
+        },
+    },
+    {
+        name: 'attach',
+        description: 'Attach to a running process for debugging. Specify a configName from launch.json, and optionally a pid or processName to identify the target process.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                configName: { type: 'string', description: 'The debug configuration name from launch.json to use as base' },
+                pid: { type: 'number', description: 'Exact process ID to attach to (overrides launch.json)' },
+                processName: { type: 'string', description: 'Process executable name to match (e.g. "Game.exe"). If multiple matches found, returns an error listing all matching PIDs.' },
+            },
+            required: ['configName'],
+        },
+        handler: async (a) => {
+            const configName = a.configName as string;
+            const pidArg = a.pid as number | undefined;
+            const processNameArg = a.processName as string | undefined;
+
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) throw new Error('No workspace folder open');
+
+            const launchPath = path.join(workspaceFolder.uri.fsPath, '.vscode', 'launch.json');
+            if (!fs.existsSync(launchPath)) throw new Error('.vscode/launch.json not found');
+            const text = fs.readFileSync(launchPath, 'utf-8');
+            const launchConfig = JSON.parse(text);
+            const baseConfig = (launchConfig.configurations || []).find((c: any) => c.name === configName);
+            if (!baseConfig) throw new Error(`Configuration "${configName}" not found in launch.json`);
+
+            let targetPid: number;
+            if (pidArg !== undefined) {
+                targetPid = pidArg;
+            } else {
+                const searchName = processNameArg || baseConfig.processName;
+                if (!searchName) throw new Error('No pid or processName specified, and launch.json config has no processName');
+
+                if (process.platform !== 'win32') throw new Error('Attach debugging is only supported on Windows');
+                const ext = vscode.extensions.getExtension('tangzx.emmylua');
+                if (!ext) throw new Error('Extension tangzx.emmylua not found');
+                const toolPath = path.join(ext.extensionPath, 'debugger', 'emmy', 'windows', 'x86', 'emmy_tool.exe');
+                if (!fs.existsSync(toolPath)) throw new Error('emmy_tool.exe not found at ' + toolPath);
+                const stdout = await new Promise<Buffer>((resolve, reject) => {
+                    cp.exec(`"${toolPath}" list_processes`, { encoding: 'buffer' }, (err, sout) => {
+                        if (err) { reject(err); return; }
+                        resolve(sout as Buffer);
+                    });
+                });
+                const iconv = require('iconv-lite');
+                const str = iconv.decode(stdout, 'cp936');
+                const arr = str.split('\r\n');
+                const size = Math.floor(arr.length / 4);
+                const matches: { pid: number; name: string; path: string; title: string }[] = [];
+                for (let i = 0; i < size; i++) {
+                    const pid = parseInt(arr[i * 4]);
+                    const title = arr[i * 4 + 1];
+                    const fpath = arr[i * 4 + 2];
+                    const name = path.basename(fpath);
+                    if (title.indexOf(searchName) !== -1 || name.indexOf(searchName) !== -1) {
+                        matches.push({ pid, name, path: fpath, title });
+                    }
+                }
+                if (matches.length === 0) {
+                    throw new Error(`No process found matching "${searchName}". Use list_processes to see available processes.`);
+                }
+                if (matches.length > 1) {
+                    const pids = matches.map(m => m.pid).join(', ');
+                    throw new Error(`Found ${matches.length} processes matching "${searchName}": PIDs [${pids}]. Use attach with a specific pid instead.`);
+                }
+                targetPid = matches[0].pid;
+            }
+
+            const config: vscode.DebugConfiguration = {
+                ...baseConfig,
+                name: configName,
+                pid: targetPid,
+            };
+            const success = await vscode.debug.startDebugging(workspaceFolder, config);
+            if (!success) {
+                _stopMcp?.();
+            }
+            return { content: [{ type: 'text', text: JSON.stringify({ success, pid: targetPid }) }] };
         },
     },
     {
