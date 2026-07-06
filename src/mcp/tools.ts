@@ -5,12 +5,6 @@ import * as cp from 'child_process';
 import { z } from 'zod';
 import type { SessionManager } from './sessionManager';
 
-let _stopMcp: (() => void) | undefined;
-
-export function setStopMcpCallback(fn: () => void): void {
-    _stopMcp = fn;
-}
-
 interface ToolDef {
     name: string;
     description: string;
@@ -437,9 +431,6 @@ const tools: ToolDef[] = [
                 pid: targetPid,
             };
             const success = await vscode.debug.startDebugging(workspaceFolder, config);
-            if (!success) {
-                _stopMcp?.();
-            }
             return { content: [{ type: 'text', text: JSON.stringify({ success, pid: targetPid }) }] };
         },
     },
@@ -469,9 +460,6 @@ const tools: ToolDef[] = [
                 ideConnectDebugger: a.ideConnectDebugger ?? true,
             };
             const success = await vscode.debug.startDebugging(workspaceFolder, config);
-            if (!success) {
-                _stopMcp?.();
-            }
             return { content: [{ type: 'text', text: JSON.stringify({ success }) }] };
         },
     },
