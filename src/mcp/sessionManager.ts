@@ -21,6 +21,10 @@ export class SessionManager implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
 
     constructor() {
+        const existing = vscode.debug.activeDebugSession;
+        if (existing) {
+            this.sessions.set(existing.id, { session: existing, startedAt: new Date() });
+        }
         this.disposables.push(
             vscode.debug.onDidStartDebugSession(session => {
                 this.sessions.set(session.id, { session, startedAt: new Date() });
